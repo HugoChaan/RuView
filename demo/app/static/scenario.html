@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RuView 场景模拟器</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0e1a; color: #e0e6ed; min-height: 100vh; overflow: hidden; }
+
+.layout { display: grid; grid-template-columns: 1fr 320px; grid-template-rows: 60px 1fr; height: 100vh; }
+
+/* Header */
+.header { grid-column: 1/3; background: #111827; border-bottom: 1px solid #1f2937; display: flex; align-items: center; padding: 0 24px; gap: 16px; }
+.header h1 { font-size: 1.2em; color: #60a5fa; }
+.header .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.7em; font-weight: 600; background: #065f46; color: #6ee7b7; }
+
+/* Main canvas area */
+.main { position: relative; background: #0d1117; overflow: hidden; }
+#scene { width: 100%; height: 100%; }
+
+/* Control buttons */
+.controls { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; background: rgba(17,24,39,0.9); padding: 12px 20px; border-radius: 16px; border: 1px solid #374151; }
+.btn { padding: 10px 20px; border: none; border-radius: 10px; font-size: 0.85em; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-standing { background: #065f46; color: #6ee7b7; }
+.btn-walking { background: #1e3a5f; color: #60a5fa; }
+.btn-sitting { background: #3b2f63; color: #c084fc; }
+.btn-fall { background: #7f1d1d; color: #fca5a5; }
+.btn.active { transform: scale(1.08); box-shadow: 0 0 20px rgba(96,165,250,0.4); }
+.btn:hover { filter: brightness(1.2); }
+
+/* Side panel */
+.panel { background: #111827; border-left: 1px solid #1f2937; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.card { background: #1f2937; border-radius: 10px; padding: 14px; }
+.card h3 { font-size: 0.75em; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+
+/* Status indicator */
+.status-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+.status-label { font-size: 0.8em; color: #9ca3af; }
+.status-value { font-size: 1.1em; font-weight: 700; }
+.text-green { color: #6ee7b7; }
+.text-blue { color: #60a5fa; }
+.text-purple { color: #c084fc; }
+.text-red { color: #f87171; }
+.text-yellow { color: #fbbf24; }
+.text-gray { color: #6b7280; }
+
+/* Vitals with bars */
+.vital-bar { height: 4px; background: #374151; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.vital-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
+
+/* Timeline */
+.timeline { max-height: 200px; overflow-y: auto; }
+.event { padding: 8px 10px; margin-bottom: 6px; border-radius: 6px; font-size: 0.8em; border-left: 3px solid; }
+.event-info { background: #1e3a5f33; border-color: #60a5fa; }
+.event-warning { background: #78350f33; border-color: #fbbf24; }
+.event-danger { background: #7f1d1d33; border-color: #f87171; }
+.event-time { font-size: 0.7em; color: #6b7280; }
+
+/* Pose label */
+.pose-label { position: absolute; top: 20px; left: 20px; background: rgba(17,24,39,0.85); padding: 8px 16px; border-radius: 8px; border: 1px solid #374151; }
+.pose-label .state { font-size: 1.4em; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <div class="header">
+    <h1>🎯 RuView 场景模拟器</h1>
+    <span class="badge">SIMULATED</span>
+  </div>
+
+  <div class="main">
+    <canvas id="scene"></canvas>
+    <div class="pose-label">
+      <div class="state" id="poseState">站立</div>
+      <div style="font-size:0.7em;color:#6b7280;margin-top:2px" id="poseDesc">正常状态</div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-standing active" onclick="setPose('standing')">🧍 站立</button>
+      <button class="btn btn-walking" onclick="setPose('walking')">🚶 行走</button>
+      <button class="btn btn-sitting" onclick="setPose('sitting')">🪑 坐下</button>
+      <button class="btn btn-fall" onclick="setPose('fall')">⚠️ 摔倒</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <!-- 人员状态 -->
+    <div class="card">
+      <h3>👤 人员状态</h3>
+      <div class="status-row">
+        <span class="status-label">姿态</span>
+        <span class="status-value text-green" id="panelPose">站立</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">置信度</span>
+        <span class="status-value text-blue" id="panelConf">92%</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">运动评分</span>
+        <span class="status-value text-purple" id="panelMotion">12.5</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">区域</span>
+        <span class="status-value text-gray" id="panelZone">客厅</span>
+      </div>
+    </div>
+
+    <!-- 生命体征 -->
+    <div class="card">
+      <h3>🫁 生命体征</h3>
+      <div class="status-row">
+        <span class="status-label">呼吸率</span>
+        <span class="status-value text-green" id="panelBR">16.2 次/分</span>
+      </div>
+      <div class="vital-bar"><div class="vital-bar-fill" id="barBR" style="width:54%;background:#6ee7b7"></div></div>
+      <div class="status-row" style="margin-top:8px">
+        <span class="status-label">心率</span>
+        <span class="status-value text-blue" id="panelHR">72 BPM</span>
+      </div>
+      <div class="vital-bar"><div class="vital-bar-fill" id="barHR" style="width:48%;background:#60a5fa"></div></div>
+      <div class="status-row" style="margin-top:8px">
+        <span class="status-label">信号质量</span>
+        <span class="status-value text-purple" id="panelSQ">85%</span>
+      </div>
+    </div>
+
+    <!-- 告警状态 -->
+    <div class="card">
+      <h3>🚨 告警状态</h3>
+      <div class="status-row">
+        <span class="status-label">跌倒风险</span>
+        <span class="status-value" id="panelFallRisk">低</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">异常检测</span>
+        <span class="status-value text-green" id="panelAnomaly">正常</span>
+      </div>
+    </div>
+
+    <!-- 事件时间线 -->
+    <div class="card">
+      <h3>📋 事件记录</h3>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── 骨骼定义 ──────────────────────────────────────────────
+const BONES = [
+  [0,1],[0,2],[1,3],[2,4], // head
+  [5,6], // shoulders
+  [5,7],[7,9], // left arm
+  [6,8],[8,10], // right arm
+  [5,11],[6,12], // torso
+  [11,12], // hips
+  [11,13],[13,15], // left leg
+  [12,14],[14,16], // right leg
+];
+
+// 预定义姿态关键点 (17点, 归一化到 0-1)
+const POSES = {
+  standing: {
+    label: '站立', desc: '正常状态',
+    points: [[.5,.12],[.48,.1],[.52,.1],[.45,.11],[.55,.11],[.4,.25],[.6,.25],[.35,.4],[.65,.4],[.33,.55],[.67,.55],[.43,.55],[.57,.55],[.43,.75],[.57,.75],[.43,.95],[.57,.95]],
+    vitals: { br: 16, hr: 72, motion: 3, conf: 0.92, sq: 0.85 },
+  },
+  walking: {
+    label: '行走', desc: '匀速移动中',
+    points: [[.5,.12],[.48,.1],[.52,.1],[.45,.11],[.55,.11],[.4,.25],[.6,.25],[.3,.38],[.7,.42],[.28,.52],[.72,.56],[.44,.55],[.56,.55],[.38,.75],[.6,.73],[.35,.95],[.62,.93]],
+    vitals: { br: 20, hr: 88, motion: 28, conf: 0.88, sq: 0.78 },
+  },
+  sitting: {
+    label: '坐下', desc: '静坐休息',
+    points: [[.5,.18],[.48,.16],[.52,.16],[.45,.17],[.55,.17],[.4,.32],[.6,.32],[.35,.45],[.65,.45],[.38,.58],[.62,.58],[.44,.52],[.56,.52],[.38,.65],[.58,.65],[.4,.82],[.6,.82]],
+    vitals: { br: 14, hr: 65, motion: 1.5, conf: 0.94, sq: 0.88 },
+  },
+  fall: {
+    label: '⚠️ 摔倒', desc: '检测到跌倒！紧急状态',
+    points: [[.35,.55],[.33,.54],[.37,.54],[.3,.55],[.4,.55],[.4,.6],[.55,.58],[.3,.65],[.6,.62],[.2,.7],[.68,.65],[.45,.7],[.6,.68],[.5,.82],[.7,.78],[.55,.95],[.75,.9]],
+    vitals: { br: 8, hr: 110, motion: 85, conf: 0.96, sq: 0.72 },
+  },
+};
+
+let currentPose = 'standing';
+let targetPoints = POSES.standing.points.map(p => [...p]);
+let currentPoints = POSES.standing.points.map(p => [...p]);
+let animFrame = 0;
+let events = [];
+
+// ── Canvas ──────────────────────────────────────────────
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = rect.height * window.devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── 姿态切换 ──────────────────────────────────────────────
+function setPose(pose) {
+  const prev = currentPose;
+  currentPose = pose;
+  const p = POSES[pose];
+  targetPoints = p.points.map(pt => [...pt]);
+
+  // UI
+  document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.btn-${pose}`).classList.add('active');
+  document.getElementById('poseState').textContent = p.label;
+  document.getElementById('poseDesc').textContent = p.desc;
+
+  // Panel
+  document.getElementById('panelPose').textContent = p.label;
+  document.getElementById('panelPose').className = 'status-value ' + (pose === 'fall' ? 'text-red' : 'text-green');
+
+  // Add event
+  addEvent(pose, prev);
+
+  // Vitals transition (animated in render loop)
+}
+
+function addEvent(pose, prev) {
+  const time = new Date().toLocaleTimeString();
+  let msg, cls;
+  switch(pose) {
+    case 'standing':
+      msg = '恢复站立姿态';
+      cls = 'event-info';
+      break;
+    case 'walking':
+      msg = '开始行走移动';
+      cls = 'event-info';
+      break;
+    case 'sitting':
+      msg = '坐下休息';
+      cls = 'event-info';
+      break;
+    case 'fall':
+      msg = '⚠️ 检测到跌倒！触发紧急告警';
+      cls = 'event-danger';
+      break;
+  }
+  events.unshift({ msg, cls, time });
+  if(events.length > 20) events.pop();
+  renderTimeline();
+}
+
+function renderTimeline() {
+  const el = document.getElementById('timeline');
+  el.innerHTML = events.map(e =>
+    `<div class="event ${e.cls}"><div>${e.msg}</div><div class="event-time">${e.time}</div></div>`
+  ).join('');
+}
+
+// ── 渲染循环 ──────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function render() {
+  animFrame++;
+  const W = canvas.width / window.devicePixelRatio;
+  const H = canvas.height / window.devicePixelRatio;
+
+  // 清屏
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  // 背景网格
+  ctx.strokeStyle = '#1f293722';
+  ctx.lineWidth = 1;
+  for(let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for(let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // 地面参考线
+  ctx.strokeStyle = '#374151';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8,4]);
+  ctx.beginPath(); ctx.moveTo(W*0.2, H*0.92); ctx.lineTo(W*0.8, H*0.92); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 平滑插值到目标姿态
+  const speed = currentPose === 'fall' ? 0.08 : 0.05;
+  for(let i = 0; i < 17; i++) {
+    currentPoints[i][0] = lerp(currentPoints[i][0], targetPoints[i][0], speed);
+    currentPoints[i][1] = lerp(currentPoints[i][1], targetPoints[i][1], speed);
+  }
+
+  // 微小呼吸/运动动画
+  const breathAmp = currentPose === 'fall' ? 0.001 : 0.003;
+  const t = animFrame * 0.03;
+  const animPoints = currentPoints.map((p, i) => [
+    p[0] + Math.sin(t + i * 0.5) * breathAmp,
+    p[1] + Math.cos(t + i * 0.3) * breathAmp * 0.5,
+  ]);
+
+  // 坐标映射
+  const ox = W * 0.3, oy = H * 0.02;
+  const sx = W * 0.4, sy = H * 0.85;
+  function tx(x) { return ox + x * sx; }
+  function ty(y) { return oy + y * sy; }
+
+  // 画信号脉冲光环
+  const pulse = Math.sin(animFrame * 0.05) * 0.3 + 0.7;
+  ctx.beginPath();
+  ctx.arc(tx(0.5), ty(0.5), 120 * pulse, 0, Math.PI * 2);
+  ctx.strokeStyle = currentPose === 'fall' ? `rgba(248,113,113,${pulse*0.3})` : `rgba(96,165,250,${pulse*0.15})`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // 画骨骼
+  const boneColor = currentPose === 'fall' ? '#f87171' : '#60a5fa';
+  ctx.strokeStyle = boneColor;
+  ctx.lineWidth = 3;
+  ctx.shadowColor = boneColor;
+  ctx.shadowBlur = 6;
+  BONES.forEach(([a,b]) => {
+    ctx.beginPath();
+    ctx.moveTo(tx(animPoints[a][0]), ty(animPoints[a][1]));
+    ctx.lineTo(tx(animPoints[b][0]), ty(animPoints[b][1]));
+    ctx.stroke();
+  });
+  ctx.shadowBlur = 0;
+
+  // 画关节点
+  animPoints.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(tx(p[0]), ty(p[1]), i === 0 ? 8 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = i === 0 ? '#fbbf24' : (currentPose === 'fall' ? '#fca5a5' : '#6ee7b7');
+    ctx.fill();
+  });
+
+  // 更新生命体征面板 (平滑)
+  updateVitals();
+
+  requestAnimationFrame(render);
+}
+
+// ── 生命体征更新 ──────────────────────────────────────────────
+let displayVitals = { br: 16, hr: 72, motion: 3, conf: 0.92, sq: 0.85 };
+
+function updateVitals() {
+  const target = POSES[currentPose].vitals;
+  displayVitals.br = lerp(displayVitals.br, target.br, 0.02);
+  displayVitals.hr = lerp(displayVitals.hr, target.hr, 0.02);
+  displayVitals.motion = lerp(displayVitals.motion, target.motion, 0.03);
+  displayVitals.conf = lerp(displayVitals.conf, target.conf, 0.02);
+  displayVitals.sq = lerp(displayVitals.sq, target.sq, 0.02);
+
+  // 呼吸率
+  const brEl = document.getElementById('panelBR');
+  brEl.textContent = `${displayVitals.br.toFixed(1)} 次/分`;
+  brEl.className = 'status-value ' + (displayVitals.br < 8 ? 'text-red' : displayVitals.br > 22 ? 'text-yellow' : 'text-green');
+  document.getElementById('barBR').style.width = `${(displayVitals.br/30)*100}%`;
+  document.getElementById('barBR').style.background = displayVitals.br < 8 ? '#f87171' : '#6ee7b7';
+
+  // 心率
+  const hrEl = document.getElementById('panelHR');
+  hrEl.textContent = `${displayVitals.hr.toFixed(0)} BPM`;
+  hrEl.className = 'status-value ' + (displayVitals.hr > 100 ? 'text-red' : displayVitals.hr < 50 ? 'text-yellow' : 'text-blue');
+  document.getElementById('barHR').style.width = `${(displayVitals.hr/150)*100}%`;
+  document.getElementById('barHR').style.background = displayVitals.hr > 100 ? '#f87171' : '#60a5fa';
+
+  // 其他
+  document.getElementById('panelMotion').textContent = displayVitals.motion.toFixed(1);
+  document.getElementById('panelConf').textContent = `${(displayVitals.conf*100).toFixed(0)}%`;
+  document.getElementById('panelSQ').textContent = `${(displayVitals.sq*100).toFixed(0)}%`;
+
+  // 跌倒风险
+  const fallEl = document.getElementById('panelFallRisk');
+  if(currentPose === 'fall') {
+    fallEl.textContent = '🚨 高危';
+    fallEl.className = 'status-value text-red';
+  } else if(currentPose === 'walking') {
+    fallEl.textContent = '中';
+    fallEl.className = 'status-value text-yellow';
+  } else {
+    fallEl.textContent = '低';
+    fallEl.className = 'status-value text-green';
+  }
+
+  // 异常
+  const anomEl = document.getElementById('panelAnomaly');
+  if(currentPose === 'fall') {
+    anomEl.textContent = '⚠️ 跌倒告警';
+    anomEl.className = 'status-value text-red';
+  } else {
+    anomEl.textContent = '正常';
+    anomEl.className = 'status-value text-green';
+  }
+}
+
+// ── 启动 ──────────────────────────────────────────────
+render();
+addEvent('standing', null);
+</script>
+</body>
+</html>

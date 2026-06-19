@@ -712,4 +712,55 @@ class Observatory {
   }
 }
 
-new Observatory();
+const _obs = new Observatory();
+
+// 启动时直接关闭 auto-cycle，锁定单人场景
+_obs._demoData._autoMode = false;
+_obs._demoData.setScenario('single_breathing');
+_obs.settings.scenario = 'single_breathing';
+
+// 暴露全局 API 给按钮使用：直接覆盖帧数据中的 person pose
+window.__ruviewSetPose = function(pose) {
+  _obs._poseOverride = pose;
+  // 关闭 auto-cycle，锁定单人场景
+  _obs._demoData._autoMode = false;
+  _obs._demoData.setScenario('single_breathing');
+};
+
+// 拦截 _demoData.update，注入 pose 覆盖
+const _origDemoUpdate = _obs._demoData.update.bind(_obs._demoData);
+_obs._demoData.update = function(dt) {
+  const frame = _origDemoUpdate(dt);
+  const pose = _obs._poseOverride;
+  if (pose && frame && frame.persons && frame.persons.length > 0) {
+    const p = frame.persons[0];
+    p.pose = pose;
+    if (pose === 'fallen') {
+      p.motion_score = 90;
+      p.fallProgress = 1;
+      frame.vital_signs = { breathing_rate_bpm: 7, heart_rate_bpm: 115, breathing_confidence: 0.9, heart_rate_confidence: 0.85 };
+      frame.classification = frame.classification || {};
+      frame.classification.fall_detected = true;
+      frame.classification.presence = true;
+    } else if (pose === 'walking') {
+      p.motion_score = 35;
+      frame.vital_signs = { breathing_rate_bpm: 20, heart_rate_bpm: 88, breathing_confidence: 0.85, heart_rate_confidence: 0.8 };
+    } else if (pose === 'sitting') {
+      p.motion_score = 2;
+      frame.vital_signs = { breathing_rate_bpm: 14, heart_rate_bpm: 64, breathing_confidence: 0.92, heart_rate_confidence: 0.88 };
+    } else if (pose === 'lying') {
+      p.motion_score = 1;
+      p.position = [p.position[0], 0.4, p.position[2]];
+      frame.vital_signs = { breathing_rate_bpm: 12, heart_rate_bpm: 58, breathing_confidence: 0.9, heart_rate_confidence: 0.85 };
+    } else if (pose === 'standing') {
+      p.motion_score = 5;
+      frame.vital_signs = { breathing_rate_bpm: 16, heart_rate_bpm: 72, breathing_confidence: 0.88, heart_rate_confidence: 0.82 };
+    } else if (pose === 'exercising') {
+      p.motion_score = 70;
+      p.exerciseType = 'squats';
+      p.exerciseTime = performance.now() / 1000;
+      frame.vital_signs = { breathing_rate_bpm: 26, heart_rate_bpm: 130, breathing_confidence: 0.8, heart_rate_confidence: 0.75 };
+    }
+  }
+  return frame;
+};

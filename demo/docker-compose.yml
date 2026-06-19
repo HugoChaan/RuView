@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  # ── RuView 感知服务器（模拟 CSI 数据）──────────────────────────────
+  ruview:
+    image: ruvnet/wifi-densepose:latest
+    restart: unless-stopped
+    command: ["--disable-host-validation"]
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3001:3001"
+    environment:
+      - CSI_SOURCE=simulated
+      - RUVIEW_ALLOW_UNAUTHENTICATED=1
+    volumes:
+      - ../ui:/app/ui
+    networks:
+      - ruview-net
+
+  # ── MQTT Broker ────────────────────────────────────────────────────
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - ruview-net
+
+  # ── 你的业务服务器 ─────────────────────────────────────────────────
+  app:
+    build: ./app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - RUVIEW_WS=ws://ruview:3001/ws/sensing
+      - RUVIEW_API=http://ruview:3000
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - FCM_KEY=${FCM_KEY:-}
+      - FCM_TOPIC=${FCM_TOPIC:-alerts}
+    depends_on:
+      - ruview
+      - mqtt
+    networks:
+      - ruview-net
+
+networks:
+  ruview-net:
+    driver: bridge
